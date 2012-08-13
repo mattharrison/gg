@@ -602,7 +602,9 @@
         identity: IdentityStatistic,
         bin:      BinStatistic,
         box:      BoxPlotStatistic,
-        sum:      SumStatistic
+        sum:      SumStatistic,
+        mean:     MeanStatistic,
+        std:      StdStatistic
     };
 
     Statistics.fromSpec = function (spec) { return new this[spec.kind](spec); };
@@ -621,6 +623,51 @@
         var bins = d3.layout.histogram().bins(this.bins)(values);
         return _.map(bins, function (bin, i) {
             return { bin: i, count: bin.y };
+        });
+    };
+
+    function StdStatistic (spec) {
+        this.group    = spec.group || false;
+        this.variable = spec.variable;
+    }
+    
+    StdStatistic.prototype.compute = function (data) {
+        var groups = splitByGroups(data, this.group, this.variable);
+        return _.map(groups, function (values, name) {
+            var sum = d3.sum(values);
+            var mean = sum/(values.length);
+            var std = Math.sqrt(d3.sum(groups.map(function (item) {
+                return Math.pow((item - mean), 2);
+            }))/(values.length-1));
+            return {
+                group: name,
+                count: values.length,
+                sum: sum,
+                mean: mean,
+                std: std,
+                min: d3.min(values),
+                max: d3.max(values)
+            };
+        });
+    };
+
+    function MeanStatistic (spec) {
+        this.group    = spec.group || false;
+        this.variable = spec.variable;
+    }
+    
+    MeanStatistic.prototype.compute = function (data) {
+        var groups = splitByGroups(data, this.group, this.variable);
+        return _.map(groups, function (values, name) {
+            var sum = d3.sum(values);
+            return {
+                group: name,
+                count: values.length,
+                sum: sum,
+                mean: sum/(values.length),
+                min: d3.min(values),
+                max: d3.max(values)
+            };
         });
     };
 
