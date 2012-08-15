@@ -2,6 +2,15 @@
 
     exports.gg.sampleData = {};
 
+    gg.sampleData.pareto = (function () {
+        return [
+            {cause:'Too red', count:120},
+            {cause:'Too blue', count:125},
+            {cause:'Too cold', count:5},
+            {cause:'Stale', count:10}
+        ];
+    }());
+
     // Random upward trending data
     gg.sampleData.upward = (function () {
         var x = 0;
@@ -50,6 +59,18 @@
         return data;
     }());
 
+    // Control plot data
+    gg.sampleData.controlData = (function () {
+        var data = [];
+        _.map(_.range(100), function (i) {
+            data.push({ 
+                x: i,
+                y: d3.random.normal(66, 18)(),
+                group: i%5
+            });
+        });
+        return data;
+    }());
 
     // Random height weight data for binned histogram and scatter plot
     gg.sampleData.heightWeight = (function () {

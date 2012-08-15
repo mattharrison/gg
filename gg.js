@@ -17,7 +17,7 @@
         _.each(spec.scales, function (s) { g.scale(Scale.fromSpec(s)); });
         g.facets = Facets.fromSpec(spec.facets, g);
         return g;
-    }
+    };
 
     Graphic.prototype.rangeFor = function (aesthetic) {
         if (aesthetic === 'x') {
@@ -44,7 +44,10 @@
 
     Graphic.prototype.dataMin = function (data, aesthetic) {
         var layers = this.layersWithAesthetic(aesthetic);
-        function key (layer) { return layer.dataMin(data, aesthetic); }
+        function key (layer) { 
+            console.log("looking for aesthetic:" + aesthetic + " in layer:" + layer.geometry.name);
+            return layer.dataMin(data, aesthetic); 
+        }
         return key(_.min(layers, key));
     };
 
@@ -186,7 +189,9 @@
             line: LineGeometry,
             interval: IntervalGeometry,
             box: BoxPlotGeometry,
-            text: TextGeometry
+            text: TextGeometry,
+            control: ControlGeometry,
+            pareto: ParetoGeometry
         }[spec.geometry || 'point'](spec);
 
         var layer = new Layer(geometry, graphic);
@@ -244,7 +249,13 @@
     };
 
     Layer.prototype.dataValue = function (datum, aesthetic) {
-        return datum[this.mappings[aesthetic]];
+
+        try {
+            return datum[this.mappings[aesthetic]];
+        }
+        catch (ex) {
+            console.log('looking for:'+ aesthetic + ' in datum ' + datum);            
+        };
     };
 
     Layer.prototype.dataMin = function (data, aesthetic) {
@@ -284,6 +295,7 @@
     }
 
     function PointGeometry (spec) {
+        this.name = 'Point';
         this.size  = spec.size || 5;
         this.alpha = spec.alpha || 1;
         this.color = spec.color || 'black';
@@ -305,6 +317,7 @@
     };
 
     function LineGeometry (spec) {
+        this.name = 'Line';
         this.color = spec.color || 'black';
         this.width = spec.width || 2;
     }
@@ -324,6 +337,7 @@
     };
 
     function IntervalGeometry (spec) {
+        this.name = 'Interval';
         this.width = spec.width || 5;
         this.color = spec.color || 'black';
     }
@@ -349,6 +363,7 @@
 
 
     function BoxPlotGeometry (spec) {
+        this.name = 'BoxPlot';
         this.width = spec.width || 10;
         this.color = spec.color || 'black';
     }
@@ -450,7 +465,108 @@
             .attr('fill', color);
     };
 
+    function ParetoGeometry (spec) {
+        
+        this.barWidth = spec.barWidth || 5;
+        this.lineWidth = spec.lineWidth || 2;
+        this.barColor = spec.barColor || 'black';
+        this.lineColor = spec.lineColor || 'black';
+    }
+    
+    ParetoGeometry.prototype = new Geometry();
+
+    ParetoGeometry.prototype.render = function (g, data) {
+        var layer = this.layer;
+        var barWidth = this.barWidth;
+        function x (d) { return layer.scaledValue(d, 'x'); }
+        function y (d) { return layer.scaledValue(d, 'y'); }
+
+        g.selectAll('rect')
+            .data(data)
+            .enter()
+            .append('rect')
+            .attr('x', function (d) { return x(d) - barWidth/2; })
+            .attr('y', function (d) { return y(d); })
+            .attr('width', barWidth)
+            .attr('height', function (d) { return layer.scaledMin('y') - y(d); })
+            .attr('fill', attributeValue(layer, 'color', this.barColor));
+        
+       g.append('polyline')
+            .attr('points', _.map(data, function (d) { return x(d) + ',' + y(d); }, this).join(' '))
+            .attr('fill', 'none')
+            .attr('stroke-width', this.lineWidth)
+            .attr('stroke', attributeValue(layer, 'color', this.lineColor)); 
+    };
+
+    function ControlGeometry (spec) {
+        this.name = 'Control';
+        this.color = spec.color || 'black';
+        this.uclColor = spec.uclColor || 'red';
+        this.lclColor = spec.lclColor || 'red';
+        this.controlWidth = spec.controlWidth || 1;
+        this.grandAvgColor = spec.grandAvgColor || 'red';
+        this.width = spec.width || 2;
+        this.grandAvg = spec.grandAvg;
+        this.ucl = spec.ucl;
+        this.lcl = spec.lcl;
+    }
+
+    ControlGeometry.prototype = new Geometry();
+
+    ControlGeometry.prototype.render = function (g, data) {
+        var layer = this.layer;
+        function x (d) { return layer.scaledValue(d, 'x'); }
+        function y (d) { return layer.scaledValue(d, 'y'); }
+        function y2 (d) { return layer.graphic.scales.y.scale(d, 'y'); }
+        // need to ensure that control limits are on screen
+
+        // main line
+        g.append('polyline')
+            .attr('points', _.map(data, function (d) { return x(d) + ',' + y(d); }, this).join(' '))
+            .attr('fill', 'none')
+            .attr('stroke-width', this.width)
+            .attr('stroke', attributeValue(layer, 'color', this.color));
+        
+
+        if (! this.grandAvg) {
+            this.grandAvg = Statistics.mean.compute(data);
+        }
+        g.append('polyline')
+            .attr('points', _.map(data, function (d) { return x(d) + ',' + y2(this.grandAvg); }, this).join(' '))
+            .attr('fill', 'none')
+            .attr('stroke-width', this.controlWidth)
+            .attr('stroke', attributeValue(layer, 'color', this.grandAvgColor));
+
+        // UCL        
+        if (! this.ucl) {
+            this.ucl = _.map(data, function (d) { 
+                var std = Statistics.std.compute(d);
+                return d + 3*std;
+            });
+        }
+        g.append('polyline')
+            .attr('points', _.map(data, function (d) { return x(d) + ',' + y2(this.ucl, 'y'); }, this).join(' '))
+            .attr('fill', 'none')
+            .attr('stroke-width', this.controlWidthc)
+            .attr('stroke-style', 'dashed')
+            .attr('stroke', attributeValue(layer, 'color', this.uclColor));
+
+        if (! this.lcl) {
+            this.lcl = _.map(data, function (d) { 
+                var std = Statistics.std.compute(d);
+                return d - 3*std;
+            });
+        }
+        g.append('polyline')
+            .attr('points', _.map(data, function (d) { return x(d) + ',' + y2(this.lcl, 'y'); }, this).join(' '))
+            .attr('fill', 'none')
+            .attr('stroke-width', this.controlWidth)
+            .attr('stroke', attributeValue(layer, 'color', this.lclColor));
+        
+    };
+
     function TextGeometry (spec) {
+        this.name = 'Text';
         this.show = spec.show;
     }
 
@@ -496,6 +612,7 @@
         spec.max       !== undefined && (s.max = spec.max);
         spec.range     !== undefined && s.range(spec.range);
         spec.legend    !== undefined && (s.legend = spec.legend);
+        spec.addZero   !== undefined && (s.addZero = spec.addZero);
         return s;
     };
 
@@ -557,6 +674,9 @@
 
     CategoricalScale.prototype.values = function (values) {
         this.domainSet = true;
+        if (this.addZero) {
+            values = [0].concat(values);
+        }
         this.d3Scale.domain(values);
     };
 
@@ -564,6 +684,9 @@
         function val (d) { return layer.dataValue(d, aesthetic); }
         var values = _.uniq(_.map(data, val));
         values.sort(function (a,b) { return a - b; });
+        if (this.addZero) {
+            values = [0].concat(values);
+        }
         this.values(values);
     };
 
@@ -604,7 +727,9 @@
         box:      BoxPlotStatistic,
         sum:      SumStatistic,
         mean:     MeanStatistic,
-        std:      StdStatistic
+        std:      StdStatistic,
+        order:    OrderStatistic,
+        cumsum:   CumSumStatistic
     };
 
     Statistics.fromSpec = function (spec) { return new this[spec.kind](spec); };
@@ -626,6 +751,7 @@
         });
     };
 
+
     function StdStatistic (spec) {
         this.group    = spec.group || false;
         this.variable = spec.variable;
@@ -636,19 +762,75 @@
         return _.map(groups, function (values, name) {
             var sum = d3.sum(values);
             var mean = sum/(values.length);
-            var std = Math.sqrt(d3.sum(groups.map(function (item) {
+            var squareDiff = function (item) {
                 return Math.pow((item - mean), 2);
-            }))/(values.length-1));
+            };
+            
+            var deltas = _.map(values, squareDiff);
+            var sumDeltas = d3.sum(deltas)/(values.length - 1);
+            var std = Math.sqrt(sumDeltas);
+
             return {
                 group: name,
                 count: values.length,
-                sum: sum,
-                mean: mean,
-                std: std,
+                'sum': sum,
+                'mean': mean,
+                'std': std,
                 min: d3.min(values),
                 max: d3.max(values)
             };
         });
+    };
+
+    
+
+    function CumSumStatistic (spec) {
+        this.variable = spec.variable;
+        this.normalize = spec.normalize || false;
+    }
+
+    CumSumStatistic.prototype.compute = function (data) {
+        var variable = this.variable;
+        var prev = 0;
+        var sumItems = function (item) {
+            var val = item.cumsum;
+            if (val === undefined) {
+                item.cumsum = item[variable] + prev;
+                prev = item.cumsum;
+            }
+            else {
+                item.cumsum += prev;
+            }
+        };
+        //_.map(data, function (item) { item['cumsum'] += prev; prev = item['cumsum'];});
+        _.map(data, sumItems);
+        if (this.normalize) {
+            sum = d3.sum(_.map(data, function (item) { return item[variable]; }));
+            _.each(data, function (item) { item['cumsum'] = item['cumsum']/sum; });
+        }
+        return data;
+    };
+
+    function OrderStatistic (spec) {
+        this.variable = spec.variable;
+        this.normalize = spec.normalize || false;
+    }
+
+    OrderStatistic.prototype.compute = function (data) {
+        var variable = this.variable;
+        var sum = 0;
+        var cmpVar = function (a, b) {
+            var a1 = a[variable];
+            var b1 = b[variable];
+            return b1 - a1;
+        };
+        data.sort(cmpVar);
+
+        if (this.normalize) {
+            sum = d3.sum(_.map(data, function (item) { return item[variable]; }));
+            _.each(data, function (item) { item['normalized'] = item[variable]/sum; });
+        }
+        return data;
     };
 
     function MeanStatistic (spec) {
@@ -663,7 +845,7 @@
             return {
                 group: name,
                 count: values.length,
-                sum: sum,
+                'sum': sum,
                 mean: sum/(values.length),
                 min: d3.min(values),
                 max: d3.max(values)
@@ -769,6 +951,6 @@
     ////////////////////////////////////////////////////////////////////////
     // API
 
-    exports.gg = function gg (spec, opts) { return Graphic.fromSpec(spec, opts); }
+    exports.gg = function gg (spec, opts) { return Graphic.fromSpec(spec, opts); };
 
 })(window);

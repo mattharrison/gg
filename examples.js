@@ -7,6 +7,42 @@
 
         // Define graphics ...
 
+        var pareto = gg({
+            layers:  [{
+                geometry: 'interval', 
+                mapping: { x: 'cause', y: 'normalized' }, 
+                color: 'red',
+                statistic: { kind: 'order', variable: 'count', normalize: true }
+                
+            }, 
+            {
+                geometry: 'line', 
+                mapping: { x: 'cause', y: 'cumsum' }, 
+                color: 'green',
+                //statistic: { kind: 'cumsum', variable: 'normalized', normalize: true }
+                statistic: { kind: 'cumsum', variable: 'count', normalize: true }
+            }],
+            scales: [
+                { type: 'categorical', aesthetic: 'x', addZero: true},
+                { type: 'linear', aesthetic: 'y', min: 0, max: 1 }
+            ]
+        });
+
+        var scp = gg({
+            layers: [{ geometry: 'control', 
+                       mapping: { x: 'group', y: 'mean' },
+                       statistic: { kind: 'std', group: 'group', variable: 'y'},
+                       grandAvg: 67,
+                       grandAvgColor: "green",
+                       ucl: 71.2,
+                       lcl: 52
+                     }],
+            scales: [
+                { type: 'linear', aesthetic: 'x' },
+                { type: 'linear', aesthetic: 'y', min: 0 }
+            ]
+        });
+
         var scatterplot = gg({
             layers: [{ geometry: 'point', mapping: { x: 'd', y: 'r' } }]
         });
@@ -103,7 +139,10 @@
         var w    = 300;
         var h    = 200;
         var ex   = function () { return d3.select('#examples').append('span'); };
-
+        
+        var paretoLoc = ex();
+        pareto.render(w, h, paretoLoc, data.pareto);
+        scp.render(w, h, paretoLoc, data.controlData);
         linechart.render(w, h, ex(), data.upward);
         combined.render(w, h, ex(), data.upward);
         barchart.render(w, h, ex(), data.upward);
